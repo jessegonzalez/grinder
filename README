@@ -1,7 +1,7 @@
 ABOUT
 =====
 
-Grinder is a tool for synching packages (rpms and delta_rpms), errata, and distributions from RHN Hosted or a Yum repository. 
+Grinder is a tool for synching packages (rpms, delta_rpms, debs and delta_debs), errata, and distributions from RHN Hosted, a Yum repository, or an Apt repository.
 
 NAME
 ====

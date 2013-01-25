@@ -19,6 +19,7 @@ import logging
 from optparse import OptionParser
 from grinder import GrinderLog
 from grinder.RepoFetch import YumRepoGrinder
+from grinder.AptRepoFetch import AptRepoGrinder
 from grinder.RHNSync import RHNSync
 from grinder.GrinderExceptions import *
 from grinder.FileFetch import FileGrinder
@@ -297,6 +298,113 @@ class RepoDriver(CliDriver):
     def stop(self):
         self.yfetch.stop()
 
+class AptRepoDriver(CliDriver):
+    parallel = 5
+    def __init__(self):
+        usage = "usage: %prog apt [OPTIONS]"
+        shortdesc = "Fetches content from a apt source."
+        desc = "apt"
+        CliDriver.__init__(self, "apt", usage, shortdesc, desc)
+        #GrinderLog.setup(self.debug)
+
+        self.parser.add_option("--label", dest="label",
+                          help="Label for the content fetched from repository URL")
+        self.parser.add_option("--limit", dest="limit",
+                          help="Limit bandwidth in KB/sec per thread", default=None)
+        self.parser.add_option('-U', "--url", dest="url",
+                          help="URL to the repository whose content to fetch")
+        self.parser.add_option("--cacert", dest="cacert", default=None,
+                          help="Path location to CA Certificate.")
+        self.parser.add_option("--cert", dest="clicert", default=None,
+                          help="Path location to Client SSL Certificate.")
+        self.parser.add_option("--key", dest="clikey", default=None,
+                          help="Path location to Client Certificate Key.")
+        self.parser.add_option("--nosslverify", action="store_true", dest="nosslverify",
+                          help="disable ssl verify of server cert")
+        self.parser.add_option('-P', "--parallel", dest="parallel",
+                          help="Thread count to fetch the bits in parallel. Defaults to 5")
+        self.parser.add_option('-b', '--basepath', dest="basepath",
+                          help="Directory path to store the fetched content. Defaults to current working directory")
+        self.parser.add_option('--proxy_url', dest="proxy_url",
+                          help="proxy url, example 'http://172.31.1.1'", default=None)
+        self.parser.add_option('--proxy_port', dest="proxy_port",
+                          help="proxy port, default is 3128", default='3128')
+        self.parser.add_option('--proxy_user', dest="proxy_user",
+                          help="proxy username, if auth is required", default=None)
+        self.parser.add_option('--proxy_pass', dest="proxy_pass",
+                          help="proxy password, if auth is required", default=None)
+        self.parser.add_option('--skip_verify_size', action="store_true",
+                          help="skip verify size of existing packages")
+        self.parser.add_option('--skip_verify_checksum', action="store_true",
+                          help="skip verify checksum of existing packages")
+        self.parser.add_option('--filter', action="store",
+                          help="add a filter, either whitelist or blacklist")
+        self.parser.add_option('--filter_regex', action="append",
+                          help="add a filter regex; may be use multiple times")
+
+    def _validate_options(self):
+        if not self.options.label:
+            print("repo label is required. Try --help.")
+            sys.exit(-1)
+
+        if not self.options.url:
+            print("No Url specified to fetch content. Try --help")
+            sys.exit(-1)
+
+        if self.options.parallel:
+            self.parallel = self.options.parallel
+
+        if self.options.filter:
+            if ((self.options.filter != "whitelist") and 
+                (self.options.filter != "blacklist")):
+                print("--filter=<type> should be either " +
+                      "'whitelist' or 'blacklist'")
+                sys.exit(-1)
+            if not self.options.filter_regex:
+                print("please provide a --filter_regex when using --filter")
+                sys.exit(-1)
+            LOG.debug("--filter=%s --filter_regex=%s" % 
+                      (self.options.filter, 
+                       self.options.filter_regex))
+
+    def _do_command(self):
+        """
+        Executes the command.
+        """
+        self._validate_options()
+        sslverify=1
+        if self.options.nosslverify:
+            sslverify=0
+        limit = None
+        if self.options.limit:
+            limit = int(self.options.limit)
+        verify_options={}
+        if self.options.skip_verify_size:
+            verify_options["size"] = False
+        if self.options.skip_verify_checksum:
+            verify_options["checksum"] = False
+        if self.options.filter:
+            self.options.filter = Filter(self.options.filter, 
+                                         regex_list=self.options.filter_regex)
+        self.afetch = AptRepoGrinder(
+            self.options.label, self.options.url,
+            self.parallel, cacert=self.options.cacert,
+            clicert=self.options.clicert,
+            clikey=self.options.clikey,
+            proxy_url=self.options.proxy_url, 
+            proxy_port=self.options.proxy_port,
+            proxy_user=self.options.proxy_user,
+            proxy_pass=self.options.proxy_pass,
+            sslverify=sslverify, max_speed=limit,
+            filter=self.options.filter)
+        if self.options.basepath:
+            self.afetch.fetchAptRepo(self.options.basepath, verify_options=verify_options)
+        else:
+            self.afetch.fetchAptRepo(verify_options=verify_options)
+
+    def stop(self):
+        self.afetch.stop()
+
 class FileDriver(CliDriver):
     parallel = 5
     def __init__(self):
@@ -387,7 +495,7 @@ class CLI:
     def __init__(self):
 
         self.cli_commands = {}
-        for clazz in [ RepoDriver, RHNDriver, FileDriver]:
+        for clazz in [ AptRepoDriver, RepoDriver, RHNDriver, FileDriver]:
             cmd = clazz()
             # ignore the base class
             if cmd.name != "cli":
